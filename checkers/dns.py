@@ -1,5 +1,12 @@
 import requests
+import logging
+
+from urllib.parse import urlparse
 from scapy.all import sr1, IP, UDP, DNS, DNSQR
+
+from checkers.helpers import check_url_is_valid
+
+logger = logging.getLogger(__name__)
 
 DNS_SERVERS = {
     "ISP": {
@@ -30,27 +37,32 @@ class DNSChecker(object):
             doh_response = self._doh_request('cloudflare-dns.com', dns_server=cloudflare_doh_server)
             assert doh_response['Status'] == 0, "Status(RCODE) is not 0"
         except Exception as e:
-            print("There is a problem with DoH")
+            logger.exception("There is a problem with DoH")
             raise e
 
     def check(self, url):
-        # TODO: Get actual domain
-        domain = url
+        domain = url if not check_url_is_valid(url) else urlparse(url).netloc
         country = "TR"
         doh_r = self._doh_request(domain, dns_server=DNS_SERVERS['CLOUDFLARE']['doh'][0])
-        assert doh_r['Status'] == 0, "Site does not exist"
+        try:
+            assert doh_r['Status'] == 0, "Site does not exist"
+            results = {}
+            for isp, dns_servers in DNS_SERVERS['ISP'][country].items():
+                for dns_server in dns_servers['legacy']:
+                    try:
+                        dns_r = self._dns_request(domain, dns_server=dns_server)
+                        msg = "Ok" if dns_r.rcode == 0 else "Failed"
+                        # TODO: Handle wrong responses too
+                        results[(isp, dns_server)] = dns_r
+                    except TimeoutError:
+                        msg = "Timeout"
+                    except Exception:
+                        msg = "There was an error occured while check domain"
+                    print("[DNS Check Output]: {} {} {} {}".format(domain, isp, dns_server, msg))
+        except AssertionError:
+            logger.error("[DNS Check Output] Site does not exist")
 
-        results = {}
-        for isp, dns_servers in DNS_SERVERS['ISP'][country].items():
-            for dns_server in dns_servers['legacy']:
-                try:
-                    dns_r = self._dns_request(domain, dns_server=dns_server)
-                    msg = "Ok" if dns_r.rcode == 0 else "Failed"
-                    # TODO: Handle wrong responses too
-                    results[(isp, dns_server)] = dns_r
-                except TimeoutError:
-                    msg = "Timeout"
-                print(domain, isp, dns_server, msg)
+
 
     @staticmethod
     def _doh_request(q_name, dns_server=DNS_SERVERS['CLOUDFLARE']['doh'][0], q_type='A'):

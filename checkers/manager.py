@@ -1,5 +1,8 @@
+import logging
+
 from .dns import DNSChecker
 
+logger = logging.getLogger(__name__)
 
 def get_prepared_checkers():
     checkers = []
@@ -8,7 +11,7 @@ def get_prepared_checkers():
         dns_checker.startup()
         checkers.append(dns_checker)
     except Exception as e:
-        print("Unhandled exception")
+        logger.exception("[DNS CHECKER]:Unhandled exception")
         raise e
 
     return checkers
